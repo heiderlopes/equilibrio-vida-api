@@ -28,7 +28,7 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
  *     tags: [Atividades]
  *     parameters:
  *       - in: query
- *         name: creatorName
+ *         name: criador
  *         required: false
  *         schema:
  *           type: string
@@ -38,12 +38,13 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
  *         description: Lista de atividades (todas ou filtradas)
  */
 app.get("/atividades", (req, res) => {
-  const { creatorName } = req.query;
+  const { criador } = req.query;
 
+  console.log(criador);
   // Se o filtro foi informado, aplica
-  if (creatorName) {
+  if (criador) {
     const filtradas = db.atividades.filter(
-      (a) => a.creatorName.toLowerCase() === creatorName.toLowerCase()
+      (a) => a.criador.toLowerCase() === criador.toLowerCase()
     );
     return res.json(filtradas);
   }
@@ -56,7 +57,7 @@ app.get("/atividades", (req, res) => {
  * @swagger
  * /atividades/{id}:
  *   get:
- *     summary: Busca uma atividade pelo ID
+ *     summary: Busca uma atividade pelo ID e verifica se o usuário participa
  *     tags: [Atividades]
  *     parameters:
  *       - in: path
@@ -64,18 +65,41 @@ app.get("/atividades", (req, res) => {
  *         required: true
  *         schema:
  *           type: integer
+ *       - in: query
+ *         name: userId
+ *         required: false
+ *         schema:
+ *           type: integer
+ *         description: ID do usuário para verificar participação
  *     responses:
  *       200:
- *         description: Atividade encontrada
+ *         description: Atividade encontrada + informação de participação
  *       404:
  *         description: Atividade não encontrada
  */
 app.get("/atividades/:id", (req, res) => {
-  const atividade = db.atividades.find((a) => a.id === Number(req.params.id));
+  const atividadeId = Number(req.params.id);
+  const userId = req.query.userId ? Number(req.query.userId) : null;
+
+  const atividade = db.atividades.find((a) => a.id === atividadeId);
+
   if (!atividade) {
     return res.status(404).json({ erro: "Atividade não encontrada" });
   }
-  res.json(atividade);
+
+  // Verifica participação corretamente
+  let participa = false;
+
+  if (userId !== null) {
+    participa = db.participacoes.some(
+      (p) => p.userId === userId && p.atividadeId === atividadeId
+    );
+  }
+
+  res.json({
+    ...atividade,
+    participa,
+  });
 });
 
 /**
@@ -150,11 +174,16 @@ app.listen(PORT, () => {
  *         required: true
  *         schema:
  *           type: integer
- *       - in: query
- *         name: rm
- *         required: true
- *         schema:
- *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               userId:
+ *                 type: integer
+ *                 example: 123
  *     responses:
  *       200:
  *         description: Participação registrada com sucesso
@@ -165,7 +194,11 @@ app.listen(PORT, () => {
  */
 app.post("/atividades/:id/join", (req, res) => {
   const atividadeId = Number(req.params.id);
-  const rm = Number(req.query.rm);
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ erro: "userId é obrigatório" });
+  }
 
   const atividade = db.atividades.find((a) => a.id === atividadeId);
   if (!atividade) {
@@ -173,7 +206,7 @@ app.post("/atividades/:id/join", (req, res) => {
   }
 
   const jaParticipa = db.participacoes.find(
-    (p) => p.rm === rm && p.atividadeId === atividadeId
+    (p) => p.userId === userId && p.atividadeId === atividadeId
   );
 
   if (jaParticipa) {
@@ -182,106 +215,44 @@ app.post("/atividades/:id/join", (req, res) => {
       .json({ erro: "Usuário já participa desta atividade" });
   }
 
-  db.participacoes.push({ rm, atividadeId });
-
-  res.json({
-    mensagem: "Entrada na atividade realizada com sucesso",
-    atividade,
-  });
-});
-
-/**
- * @swagger
- * /atividades/{id}/join:
- *   post:
- *     summary: Participar de uma atividade
- *     tags: [Atividades]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               rm:
- *                 type: integer
- *                 example: 12345
- *     responses:
- *       200:
- *         description: Participação registrada com sucesso
- *       400:
- *         description: Usuário já participa
- *       404:
- *         description: Atividade não encontrada
- */
-app.post("/atividades/:id/join", (req, res) => {
-  const atividadeId = Number(req.params.id);
-  const { rm } = req.body;
-
-  const atividade = db.atividades.find((a) => a.id === atividadeId);
-  if (!atividade) {
-    return res.status(404).json({ erro: "Atividade não encontrada" });
-  }
-
-  const jaParticipa = db.participacoes.find(
-    (p) => p.rm === rm && p.atividadeId === atividadeId
-  );
-
-  if (jaParticipa) {
-    return res.status(400).json({
-      erro: "Usuário já participa desta atividade",
-    });
-  }
-
-  db.participacoes.push({ rm, atividadeId });
+  db.participacoes.push({ userId, atividadeId });
 
   res.json({
     mensagem: "Entrada na atividade realizada com sucesso",
     atividadeId,
-    rm,
+    userId,
   });
 });
 
 /**
  * @swagger
- * /atividades/{id}/leave:
+ * /usuarios/{id}/atividades/{id}/leave:
  *   delete:
  *     summary: Sair de uma atividade
  *     tags: [Atividades]
  *     parameters:
  *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: integer
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               rm:
- *                 type: integer
- *                 example: 12345
  *     responses:
  *       200:
  *         description: Saída realizada com sucesso
  *       404:
  *         description: Participação não encontrada
  */
-app.delete("/atividades/:id/leave", (req, res) => {
+app.delete("/usuarios/:userId/atividades/:id/leave", (req, res) => {
   const atividadeId = Number(req.params.id);
-  const { rm } = req.body;
+  const userId = Number(req.params.userId);
 
   const index = db.participacoes.findIndex(
-    (p) => p.rm === rm && p.atividadeId === atividadeId
+    (p) => p.userId === userId && p.atividadeId === atividadeId
   );
 
   if (index === -1) {
@@ -295,6 +266,6 @@ app.delete("/atividades/:id/leave", (req, res) => {
   res.json({
     mensagem: "Usuário saiu da atividade com sucesso",
     atividadeId,
-    rm,
+    userId,
   });
 });
