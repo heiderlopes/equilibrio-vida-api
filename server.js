@@ -148,12 +148,29 @@ app.post("/atividades", (req, res) => {
  *         description: Atividade removida
  */
 app.delete("/atividades/:id", (req, res) => {
-  const index = db.atividades.findIndex((a) => a.id === Number(req.params.id));
+  const atividadeId = Number(req.params.id);
+
+  const index = db.atividades.findIndex((a) => a.id === atividadeId);
+
   if (index === -1) {
     return res.status(404).json({ erro: "Atividade não encontrada" });
   }
+
+  const atividade = db.atividades[index];
+
+  // 🚫 Impede exclusão caso criador seja "Sistema"
+  if (atividade.criador === "Sistema") {
+    return res.status(403).json({
+      erro: "Atividades criadas pelo Sistema não podem ser excluídas",
+    });
+  }
+
   const removida = db.atividades.splice(index, 1);
-  res.json({ mensagem: "Atividade removida", removida });
+
+  res.json({
+    mensagem: "Atividade removida com sucesso",
+    removida,
+  });
 });
 
 // Start server
